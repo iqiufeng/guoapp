@@ -6,7 +6,7 @@ on:
       build_flavor:
         description: '选择构建版本 (all / hongguojian / zhenguojian)'
         required: true
-        default: 'all'
+        default: 'zhenguojian'
         type: choice
         options:
           - all
