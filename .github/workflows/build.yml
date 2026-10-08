@@ -15,8 +15,8 @@ concurrency:
   cancel-in-progress: true
 
 env:
-  GOPROXY: https://proxy.golang.org,direct
-  GOSUMDB: sum.golang.org
+  GOPROXY: https://goproxy.cn,direct  # <--- 换成国内源
+  GOSUMDB: off                        # <--- 关闭校验，防止网络问题
 
 jobs:
   checks:
@@ -148,7 +148,6 @@ jobs:
       matrix:
         include:
           - edition: zhenguojian
-            arguments: '--all-sources'
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -163,14 +162,14 @@ jobs:
           flutter-version: '3.47.4'
           channel: stable
           cache: true
-      - run: .\scripts\build_windows.ps1 ${{ matrix.arguments }}
+      - run: flutter pub get  # <--- 确保有这一行
+      - run: .\scripts\build_windows.ps1 -AllSources
         shell: pwsh
       - uses: actions/upload-artifact@v4
         with:
-          name: ${{ matrix.edition }}-windows
+          name: zhenguojian-windows
           path: dist/windows/*
           if-no-files-found: error
-          retention-days: 14
 
   ios:
     needs: checks
@@ -181,7 +180,6 @@ jobs:
       matrix:
         include:
           - edition: zhenguojian
-            arguments: '--all-sources'
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -196,14 +194,15 @@ jobs:
           flutter-version: '3.47.4'
           channel: stable
           cache: true
+      - run: flutter pub get  # <--- 确保有这一行
       - run: sudo gem install cocoapods
-      - run: python scripts/build_ios.py ${{ matrix.arguments }}
+      - run: cd ios && pod install && cd ..
+      - run: python scripts/build_ios.py --all-sources
       - uses: actions/upload-artifact@v4
         with:
-          name: ${{ matrix.edition }}-ios
+          name: zhenguojian-ios
           path: dist/ios/*
           if-no-files-found: error
-          retention-days: 14
 
   release:
     needs: [ios, windows]   # <--- 只依赖 ios 和 windows
