@@ -139,6 +139,7 @@ jobs:
           if-no-files-found: error
           retention-days: 14
   windows:
+    needs: checks
     runs-on: windows-latest
     timeout-minutes: 45
     strategy:
@@ -149,8 +150,28 @@ jobs:
             arguments: '--all-sources'
     steps:
       - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: native/go.mod
+          cache-dependency-path: native/go.sum
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: '3.47.4'
+          channel: stable
+          cache: true
+      - run: python scripts/build_windows.py ${{ matrix.arguments }}
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.edition }}-windows
+          path: dist/windows/*
+          if-no-files-found: error
+          retention-days: 14
 
   ios:
+    needs: checks
     runs-on: macos-latest
     timeout-minutes: 60
     strategy:
@@ -161,6 +182,25 @@ jobs:
             arguments: '--all-sources'
     steps:
       - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: native/go.mod
+          cache-dependency-path: native/go.sum
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: '3.47.4'
+          channel: stable
+          cache: true
+      - run: python scripts/build_ios.py ${{ matrix.arguments }}
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.edition }}-ios
+          path: dist/ios/*
+          if-no-files-found: error
+          retention-days: 14
 
   release:
     needs: [android, ios, windows]
@@ -200,6 +240,8 @@ jobs:
           set -euo pipefail
           version=$(sed -n 's/^version:[[:space:]]*//p' pubspec.yaml | head -n1)
           tag="app-v${version//+/-}"
+          # ... (后面的发布逻辑保持不变) ...
+          # 注意：这里为了简洁省略了后面的 echo 和 gh release 命令，请保留你文件里原有的后半部分代码，只修改上面的 needs 和 if 以及 upload-artifact 部分。
           apk_note="Android（已用固定发布证书签名，可覆盖安装升级，无需卸载）："
           if printf '%s\n' "${{ vars.ANDROID_CERT_SHA256 }}" | grep -q .; then
             apk_note="Android（已用固定发布证书签名，可覆盖安装升级，无需卸载）："
