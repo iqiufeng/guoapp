@@ -1,0 +1,87 @@
+name: Build iOS Unsigned IPA
+
+on:
+  workflow_dispatch:
+    inputs:
+      build_flavor:
+        description: '选择构建版本 (all / hongguojian / zhenguojian)'
+        required: true
+        default: 'all'
+        type: choice
+        options:
+          - all
+          - hongguojian
+          - zhenguojian
+  push:
+    tags:
+      - 'v*'
+
+jobs:
+  build-ios-ipa:
+    runs-on: macos-latest
+
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.24'
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Setup Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          channel: 'stable'
+
+      - name: Install Dependencies
+        run: |
+          flutter pub get
+          cd ios && pod install && cd ..
+
+      # 编译 红果鉴 (默认版) IPA
+      - name: Build HongGuoJian IPA
+        if: ${{ inputs.build_flavor == 'all' || inputs.build_flavor == 'hongguojian' || github.event_name == 'push' }}
+        run: |
+          python3 scripts/build_ios.py
+          mkdir -p ipa_hongguo/Payload
+          if [ -d "dist/ios/hongguojian.app" ]; then
+            cp -r dist/ios/hongguojian.app ipa_hongguo/Payload/
+          elif [ -d "build/ios/iphoneos/Runner.app" ]; then
+            cp -r build/ios/iphoneos/Runner.app ipa_hongguo/Payload/
+          fi
+          cd ipa_hongguo && zip -r ../hongguojian-unsigned.ipa Payload && cd ..
+
+      # 编译 真果鉴 (全站源版) IPA
+      - name: Build ZhenGuoJian IPA
+        if: ${{ inputs.build_flavor == 'all' || inputs.build_flavor == 'zhenguojian' || github.event_name == 'push' }}
+        run: |
+          python3 scripts/build_ios.py --all-sources
+          mkdir -p ipa_zhenguo/Payload
+          if [ -d "dist/ios/zhenguojian.app" ]; then
+            cp -r dist/ios/zhenguojian.app ipa_zhenguo/Payload/
+          elif [ -d "build/ios/iphoneos/Runner.app" ]; then
+            cp -r build/ios/iphoneos/Runner.app ipa_zhenguo/Payload/
+          fi
+          cd ipa_zhenguo && zip -r ../zhenguojian-unsigned.ipa Payload && cd ..
+
+      # 上传生成的 IPA 产物
+      - name: Upload Unsigned IPA Artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: ios-unsigned-ipa
+          path: "*.ipa"
+
+      # 如果推送了 v* 标签，自动同步发布到 GitHub Release
+      - name: Release IPA Files
+        if: startsWith(github.ref, 'refs/tags/')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: "*.ipa"
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
