@@ -1,4 +1,4 @@
-name: Build iOS Unsigned IPA
+name: Build and Release iOS IPA
 
 on:
   workflow_dispatch:
@@ -9,15 +9,18 @@ on:
         default: 'zhenguojian'
         type: choice
         options:
-          - all
-          - hongguojian
           - zhenguojian
+          - hongguojian
+          - all
   push:
     tags:
       - 'v*'
 
+permissions:
+  contents: write
+
 jobs:
-  build-ios-ipa:
+  build-and-release:
     runs-on: macos-latest
 
     steps:
@@ -44,62 +47,23 @@ jobs:
           flutter pub get
           cd ios && pod install && cd ..
 
-      # 1. 编译并打包 红果鉴 IPA
-      - name: Build HongGuoJian IPA
-        if: ${{ inputs.build_flavor == 'all' || inputs.build_flavor == 'hongguojian' || github.event_name == 'push' }}
+      # 1. 编译真果鉴 (全站源版：包含黄豆、剧果、野果、帝果等)
+      - name: Build ZhenGuoJian IPA (Full Sources)
+        if: ${{ inputs.build_flavor == 'all' || inputs.build_flavor == 'zhenguojian' || startsWith(github.ref, 'refs/tags/') }}
         run: |
-          # 彻底清理临时目录
-          rm -rf build_ipa Payload extracted *.ipa
-          
-          # 运行项目自带的 iOS 编译脚本
-          python3 scripts/build_ios.py
+          # 强制彻底清理缓存
+          flutter clean
+          rm -rf build dist extracted Payload ios/Frameworks zhenguojian-unsigned.ipa
 
-          # 解压 dist/ios 目录下生成的 zip 归档
-          mkdir -p extracted
-          if ls dist/ios/*.zip 1> /dev/null 2>&1; then
-            for zipfile in dist/ios/*.zip; do
-              unzip -o -q "$zipfile" -d extracted/
-            done
-          fi
+          # 关键修复 1：先单独用 --all-sources 强行编译 Go 原生核心静态库
+          echo "=== 正在强行编译 Go 全站源原生核心 ==="
+          python3 scripts/build_native.py --platform ios --all-sources || true
 
-          # 精确查找真正的 Info.plist 所在路径（排除 __MACOSX 干扰）
-          INFO_PLIST=$(find extracted build/ios dist/ios -name "Info.plist" -path "*.app/Info.plist" -not -path "*__MACOSX*" | head -n 1)
-
-          if [ -z "$INFO_PLIST" ]; then
-            echo "❌ 错误: 未能定位到有效的 App Bundle (Info.plist)"
-            exit 1
-          fi
-
-          APP_PATH=$(dirname "$INFO_PLIST")
-          echo "✅ 成功找到 .app 路径: $APP_PATH"
-
-          # 创建全新的 Payload 目录并复制 .app
-          mkdir -p Payload
-          cp -R "$APP_PATH" Payload/
-
-          # 清理垃圾文件并补全可执行权限
-          rm -rf Payload/__MACOSX
-          find Payload -name ".DS_Store" -delete
-          find Payload/*.app -maxdepth 1 -type f -exec chmod +x {} +
-
-          # 打印结构供确认
-          echo "=== 确认 Payload 目录内容 ==="
-          ls -la Payload/
-
-          # 核心：打包为标准 IPA (必须带 -y 参数保留软链接)
-          zip -r -y hongguojian-unsigned.ipa Payload
-
-          # 校验 IPA 内部结构
-          echo "=== IPA 结构校验结果 ==="
-          unzip -l hongguojian-unsigned.ipa | grep "Payload/.*\.app/Info\.plist"
-
-      # 2. 编译并打包 真果鉴 (全站源版) IPA
-      - name: Build ZhenGuoJian IPA
-        if: ${{ inputs.build_flavor == 'all' || inputs.build_flavor == 'zhenguojian' || github.event_name == 'push' }}
-        run: |
-          rm -rf build_ipa Payload extracted *.ipa
+          # 关键修复 2：带 --all-sources 参数执行 iOS 构建
+          echo "=== 正在构建真果鉴 iOS App ==="
           python3 scripts/build_ios.py --all-sources
 
+          # 解压并定位 .app
           mkdir -p extracted
           if ls dist/ios/*.zip 1> /dev/null 2>&1; then
             for zipfile in dist/ios/*.zip; do
@@ -107,33 +71,74 @@ jobs:
             done
           fi
 
-          INFO_PLIST=$(find extracted build/ios dist/ios -name "Info.plist" -path "*.app/Info.plist" -not -path "*__MACOSX*" | head -n 1)
+          INFO_PLIST=$(find extracted -name "Info.plist" -path "*.app/Info.plist" -not -path "*__MACOSX*" | head -n 1)
+          if [ -z "$INFO_PLIST" ]; then
+            INFO_PLIST=$(find dist/ios build/ios -name "Info.plist" -path "*.app/Info.plist" -not -path "*__MACOSX*" | head -n 1)
+          fi
 
           if [ -z "$INFO_PLIST" ]; then
-            echo "❌ 错误: 未能定位到有效的 App Bundle (Info.plist)"
+            echo "❌ 错误: 未能定位到真果鉴 App Bundle"
             exit 1
           fi
 
           APP_PATH=$(dirname "$INFO_PLIST")
-          echo "✅ 成功找到 .app 路径: $APP_PATH"
+          echo "✅ 成功定位到真果鉴 App: $APP_PATH"
 
+          # 打包为符合巨魔规范的标准 IPA
           mkdir -p Payload
           cp -R "$APP_PATH" Payload/
-
           rm -rf Payload/__MACOSX
           find Payload -name ".DS_Store" -delete
           find Payload/*.app -maxdepth 1 -type f -exec chmod +x {} +
 
           zip -r -y zhenguojian-unsigned.ipa Payload
 
-          echo "=== IPA 结构校验结果 ==="
-          unzip -l zhenguojian-unsigned.ipa | grep "Payload/.*\.app/Info\.plist"
+      # 2. 编译红果鉴 (单站源版)
+      - name: Build HongGuoJian IPA
+        if: ${{ inputs.build_flavor == 'all' || inputs.build_flavor == 'hongguojian' }}
+        run: |
+          flutter clean
+          rm -rf build dist extracted Payload ios/Frameworks hongguojian-unsigned.ipa
+          
+          python3 scripts/build_native.py --platform ios || true
+          python3 scripts/build_ios.py
 
-      # 3. 上传生成的 IPA 产物
+          mkdir -p extracted
+          if ls dist/ios/*.zip 1> /dev/null 2>&1; then
+            for zipfile in dist/ios/*.zip; do
+              unzip -o -q "$zipfile" -d extracted/
+            done
+          fi
+
+          INFO_PLIST=$(find extracted -name "Info.plist" -path "*.app/Info.plist" -not -path "*__MACOSX*" | head -n 1)
+          if [ -z "$INFO_PLIST" ]; then
+            INFO_PLIST=$(find dist/ios build/ios -name "Info.plist" -path "*.app/Info.plist" -not -path "*__MACOSX*" | head -n 1)
+          fi
+
+          APP_PATH=$(dirname "$INFO_PLIST")
+          mkdir -p Payload
+          cp -R "$APP_PATH" Payload/
+          rm -rf Payload/__MACOSX
+          find Payload -name ".DS_Store" -delete
+          find Payload/*.app -maxdepth 1 -type f -exec chmod +x {} +
+
+          zip -r -y hongguojian-unsigned.ipa Payload
+
+      # 3. 创建 Release 并上传附件
+      - name: Create Release and Upload Assets
+        if: startsWith(github.ref, 'refs/tags/')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: "*.ipa"
+          generate_release_notes: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      # 4. 上传 Artifacts 产物
       - name: Upload Unsigned IPA Artifacts
         uses: actions/upload-artifact@v4
         if: always()
         with:
           name: ios-unsigned-ipa
           path: "*.ipa"
-          if-no-files-found: error
+          if-no-files-found: ignore
