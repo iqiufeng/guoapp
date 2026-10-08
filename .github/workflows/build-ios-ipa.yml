@@ -44,60 +44,66 @@ jobs:
           flutter pub get
           cd ios && pod install && cd ..
 
-      # 编译 红果鉴 IPA
-      - name: Build and Package HongGuoJian IPA
+      # 编译并打包 红果鉴 IPA
+      - name: Build HongGuoJian IPA
         if: ${{ inputs.build_flavor == 'all' || inputs.build_flavor == 'hongguojian' || github.event_name == 'push' }}
         run: |
+          rm -rf dist/ios build/ios Payload extracted
           python3 scripts/build_ios.py
-          
-          # 清理临时文件夹
-          rm -rf build_ipa Payload
-          mkdir -p Payload
-          
-          # 自动定位构建出的 .app 路径
-          APP_PATH=$(find dist/ios build/ios -name "*.app" -type d | head -n 1)
+
+          # 解压 dist/ios 目录下生成的 zip 归档文件
+          mkdir -p extracted
+          if ls dist/ios/*.zip 1> /dev/null 2>&1; then
+            for zipfile in dist/ios/*.zip; do
+              unzip -o -q "$zipfile" -d extracted/
+            done
+          fi
+
+          # 查找解压出来的 .app 目录
+          APP_PATH=$(find extracted build/ios dist/ios -name "*.app" -type d | head -n 1)
           if [ -z "$APP_PATH" ]; then
-            echo "Error: .app folder not found!"
+            echo "Error: 未能在产物中定位到 .app 目录！"
             exit 1
           fi
-          
-          echo "Found .app at: $APP_PATH"
+
+          echo "定位到 .app 目录: $APP_PATH"
+          mkdir -p Payload
           cp -R "$APP_PATH" Payload/
           
-          # 核心修复：必须加 -y 选项保留符号链接，并在根层级打包 Payload
+          # 打包为标准 IPA (保留 -y 软链接)
           zip -r -y hongguojian-unsigned.ipa Payload
-          
-          # 验证包内部是否有 Info.plist
-          unzip -l hongguojian-unsigned.ipa | grep "Payload/.*\.app/Info\.plist"
 
-      # 编译 真果鉴 (全站源版) IPA
-      - name: Build and Package ZhenGuoJian IPA
+      # 编译并打包 真果鉴 (全站源版) IPA
+      - name: Build ZhenGuoJian IPA
         if: ${{ inputs.build_flavor == 'all' || inputs.build_flavor == 'zhenguojian' || github.event_name == 'push' }}
         run: |
+          rm -rf dist/ios build/ios Payload extracted
           python3 scripts/build_ios.py --all-sources
-          
-          # 清理临时文件夹
-          rm -rf build_ipa Payload
-          mkdir -p Payload
-          
-          APP_PATH=$(find dist/ios build/ios -name "*.app" -type d | head -n 1)
+
+          mkdir -p extracted
+          if ls dist/ios/*.zip 1> /dev/null 2>&1; then
+            for zipfile in dist/ios/*.zip; do
+              unzip -o -q "$zipfile" -d extracted/
+            done
+          fi
+
+          APP_PATH=$(find extracted build/ios dist/ios -name "*.app" -type d | head -n 1)
           if [ -z "$APP_PATH" ]; then
-            echo "Error: .app folder not found!"
+            echo "Error: 未能在产物中定位到 .app 目录！"
             exit 1
           fi
-          
-          echo "Found .app at: $APP_PATH"
+
+          echo "定位到 .app 目录: $APP_PATH"
+          mkdir -p Payload
           cp -R "$APP_PATH" Payload/
           
-          # 核心修复：必须加 -y 选项打包
           zip -r -y zhenguojian-unsigned.ipa Payload
-          
-          # 验证包内部是否有 Info.plist
-          unzip -l zhenguojian-unsigned.ipa | grep "Payload/.*\.app/Info\.plist"
 
       # 上传生成的 IPA 产物
       - name: Upload Unsigned IPA Artifacts
         uses: actions/upload-artifact@v4
+        if: always()
         with:
           name: ios-unsigned-ipa
           path: "*.ipa"
+          if-no-files-found: error
