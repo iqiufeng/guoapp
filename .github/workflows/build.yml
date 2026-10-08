@@ -139,7 +139,6 @@ jobs:
           if-no-files-found: error
           retention-days: 14
   windows:
-    if: false
     needs: checks
     runs-on: windows-latest
     timeout-minutes: 45
@@ -147,15 +146,12 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - edition: hongguojian
-            arguments: ''
           - edition: zhenguojian
             arguments: '--all-sources'
     steps:
       - uses: actions/checkout@v4
 
   ios:
-    if: false
     needs: checks
     runs-on: macos-latest
     timeout-minutes: 60
@@ -163,16 +159,14 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - edition: hongguojian
-            arguments: ''
           - edition: zhenguojian
             arguments: '--all-sources'
     steps:
       - uses: actions/checkout@v4
 
   release:
-    needs: [android]
-    if: always() && needs.android.result == 'success'
+    needs: [android, ios, windows]
+    if: always() && needs.android.result == 'success' && needs.ios.result == 'success' && needs.windows.result == 'success'
     runs-on: ubuntu-latest
     timeout-minutes: 20
     permissions:
