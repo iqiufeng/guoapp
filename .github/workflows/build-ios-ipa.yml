@@ -44,31 +44,56 @@ jobs:
           flutter pub get
           cd ios && pod install && cd ..
 
-      # 编译 红果鉴 (默认版) IPA
-      - name: Build HongGuoJian IPA
+      # 编译 红果鉴 IPA
+      - name: Build and Package HongGuoJian IPA
         if: ${{ inputs.build_flavor == 'all' || inputs.build_flavor == 'hongguojian' || github.event_name == 'push' }}
         run: |
           python3 scripts/build_ios.py
-          mkdir -p ipa_hongguo/Payload
-          if [ -d "dist/ios/hongguojian.app" ]; then
-            cp -r dist/ios/hongguojian.app ipa_hongguo/Payload/
-          elif [ -d "build/ios/iphoneos/Runner.app" ]; then
-            cp -r build/ios/iphoneos/Runner.app ipa_hongguo/Payload/
+          
+          # 清理临时文件夹
+          rm -rf build_ipa Payload
+          mkdir -p Payload
+          
+          # 自动定位构建出的 .app 路径
+          APP_PATH=$(find dist/ios build/ios -name "*.app" -type d | head -n 1)
+          if [ -z "$APP_PATH" ]; then
+            echo "Error: .app folder not found!"
+            exit 1
           fi
-          cd ipa_hongguo && zip -r ../hongguojian-unsigned.ipa Payload && cd ..
+          
+          echo "Found .app at: $APP_PATH"
+          cp -R "$APP_PATH" Payload/
+          
+          # 核心修复：必须加 -y 选项保留符号链接，并在根层级打包 Payload
+          zip -r -y hongguojian-unsigned.ipa Payload
+          
+          # 验证包内部是否有 Info.plist
+          unzip -l hongguojian-unsigned.ipa | grep "Payload/.*\.app/Info\.plist"
 
       # 编译 真果鉴 (全站源版) IPA
-      - name: Build ZhenGuoJian IPA
+      - name: Build and Package ZhenGuoJian IPA
         if: ${{ inputs.build_flavor == 'all' || inputs.build_flavor == 'zhenguojian' || github.event_name == 'push' }}
         run: |
           python3 scripts/build_ios.py --all-sources
-          mkdir -p ipa_zhenguo/Payload
-          if [ -d "dist/ios/zhenguojian.app" ]; then
-            cp -r dist/ios/zhenguojian.app ipa_zhenguo/Payload/
-          elif [ -d "build/ios/iphoneos/Runner.app" ]; then
-            cp -r build/ios/iphoneos/Runner.app ipa_zhenguo/Payload/
+          
+          # 清理临时文件夹
+          rm -rf build_ipa Payload
+          mkdir -p Payload
+          
+          APP_PATH=$(find dist/ios build/ios -name "*.app" -type d | head -n 1)
+          if [ -z "$APP_PATH" ]; then
+            echo "Error: .app folder not found!"
+            exit 1
           fi
-          cd ipa_zhenguo && zip -r ../zhenguojian-unsigned.ipa Payload && cd ..
+          
+          echo "Found .app at: $APP_PATH"
+          cp -R "$APP_PATH" Payload/
+          
+          # 核心修复：必须加 -y 选项打包
+          zip -r -y zhenguojian-unsigned.ipa Payload
+          
+          # 验证包内部是否有 Info.plist
+          unzip -l zhenguojian-unsigned.ipa | grep "Payload/.*\.app/Info\.plist"
 
       # 上传生成的 IPA 产物
       - name: Upload Unsigned IPA Artifacts
@@ -76,12 +101,3 @@ jobs:
         with:
           name: ios-unsigned-ipa
           path: "*.ipa"
-
-      # 如果推送了 v* 标签，自动同步发布到 GitHub Release
-      - name: Release IPA Files
-        if: startsWith(github.ref, 'refs/tags/')
-        uses: softprops/action-gh-release@v2
-        with:
-          files: "*.ipa"
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
